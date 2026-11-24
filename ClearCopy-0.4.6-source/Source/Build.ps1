@@ -8,7 +8,7 @@ if ($CompilerPath) {
     $CompilerPath = (Resolve-Path -LiteralPath $CompilerPath).Path
     $output = Join-Path $PSScriptRoot 'bin\Release\net48'
     New-Item -ItemType Directory -Path $output -Force | Out-Null
-    $references = @('System.dll', 'System.Core.dll', 'System.Xml.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'Microsoft.VisualBasic.dll', 'System.Xaml.dll') | ForEach-Object { '/reference:' + (Join-Path $frameworkPath $_) }
+    $references = @('System.dll', 'System.Core.dll', 'System.Xml.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'Microsoft.VisualBasic.dll', 'System.Xaml.dll', 'System.Web.Extensions.dll') | ForEach-Object { '/reference:' + (Join-Path $frameworkPath $_) }
     $references += @('WindowsBase.dll', 'PresentationCore.dll', 'PresentationFramework.dll', 'UIAutomationClient.dll', 'UIAutomationTypes.dll', 'UIAutomationProvider.dll') | ForEach-Object { '/reference:' + (Join-Path "$frameworkPath\WPF" $_) }
     $sources = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'ClearCopy'), (Join-Path $PSScriptRoot 'Properties') -Filter '*.cs' -File -Recurse | Select-Object -ExpandProperty FullName
     & $CompilerPath /nologo /target:winexe /platform:x64 /unsafe+ /optimize+ /langversion:14.0 '/main:ClearCopy.Program' "/out:$output\ClearCopy.exe" "/win32icon:$PSScriptRoot\app.ico" "/win32manifest:$PSScriptRoot\app.manifest" "/resource:$PSScriptRoot\ClearCopy.ico,ClearCopy.ico" @references @sources

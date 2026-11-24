@@ -554,6 +554,53 @@ public sealed class MainWindow : Window
 		}
 	}
 
+	private async Task CheckForUpdatesAsync()
+	{
+		const string caption = "ClearCopy updates";
+		string prompt;
+		try
+		{
+			Version current = SelfInstall.Normalize(typeof(MainWindow).Assembly.GetName().Version);
+			Version latest = await ReleaseCheck.LatestVersionAsync(current);
+			if (!IsLoaded)
+			{
+				return;
+			}
+			if (latest <= current)
+			{
+				MessageBox.Show(this, "You’re up to date.", caption, MessageBoxButton.OK, MessageBoxImage.Information);
+				return;
+			}
+			prompt = $"ClearCopy {latest.ToString(latest.Revision == 0 ? 3 : 4)} is available. Open GitHub Releases?";
+		}
+		catch (System.Net.WebException ex) when (ex.Response is System.Net.HttpWebResponse response &&
+			response.StatusCode == System.Net.HttpStatusCode.NotFound)
+		{
+			response.Dispose();
+			prompt = "No published release was found. Open GitHub Releases?";
+		}
+		catch (Exception ex)
+		{
+			(ex as System.Net.WebException)?.Response?.Dispose();
+			if (IsLoaded)
+			{
+				MessageBox.Show(this, "Could not check for updates. " + ex.Message, caption, MessageBoxButton.OK, MessageBoxImage.Warning);
+			}
+			return;
+		}
+		if (IsLoaded && MessageBox.Show(this, prompt, caption, MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+		{
+			try
+			{
+				Process.Start(new ProcessStartInfo(ReleaseCheck.ReleasesPage) { UseShellExecute = true });
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show(this, "Could not open GitHub Releases. " + ex.Message, caption, MessageBoxButton.OK, MessageBoxImage.Warning);
+			}
+		}
+	}
+
 	private void UpdateThemeLabel()
 	{
 		if (themeButton != null)
@@ -2431,7 +2478,7 @@ public sealed class MainWindow : Window
 
 	private void BuildLayout()
 	{
-		Title = "ClearCopy 0.4.6 — copy & compare";
+		Title = "ClearCopy 0.4.7 — copy & compare";
 		Width = 1080.0;
 		Height = 840.0;
 		MinWidth = 800.0;
@@ -2513,6 +2560,28 @@ public sealed class MainWindow : Window
 			SetCompact(!compactView, save: true);
 		};
 		tools.Children.Add(themeButton);
+		var checkUpdatesButton = new Button
+		{
+			Content = "Check for updates",
+			Padding = new Thickness(9.0, 7.0, 9.0, 7.0),
+			Margin = new Thickness(6.0, 0.0, 0.0, 0.0),
+			VerticalAlignment = VerticalAlignment.Top
+		};
+		checkUpdatesButton.Click += async (sender, args) =>
+		{
+			checkUpdatesButton.IsEnabled = false;
+			checkUpdatesButton.Content = "Checking for updates…";
+			try
+			{
+				await CheckForUpdatesAsync();
+			}
+			finally
+			{
+				checkUpdatesButton.Content = "Check for updates";
+				checkUpdatesButton.IsEnabled = true;
+			}
+		};
+		tools.Children.Add(checkUpdatesButton);
 		UpdateDetailsButton();
 		integrationStatus.FontSize = 11.0;
 		integrationStatus.TextWrapping = TextWrapping.Wrap;
