@@ -4,6 +4,10 @@ ClearCopy is a Windows file copy and comparison utility. Use it to copy files qu
 
 **[Download the latest release](https://github.com/CS-Colin/ClearCopy/releases/latest)** · [Browse the C# source](Source/ClearCopy)
 
+## Credits
+
+ClearCopy was originally created by [Alucarddp](https://github.com/Alucarddp), who also contributed the [Explorer paste preference feature](https://github.com/CS-Colin/ClearCopy/commit/8238e0f8) in v0.4.8.
+
 ## Get started
 
 1. Download the `ClearCopy-<version>.exe` and its matching `.exe.config` from **Assets** on the release page. Keep both files in the same folder with their original names.
