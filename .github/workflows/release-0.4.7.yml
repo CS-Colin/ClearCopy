@@ -1,0 +1,61 @@
+name: Publish ClearCopy 0.4.7
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-0.4.7.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: clearcopy-release-0.4.7
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build, publish and verify
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $source = 'ClearCopy-0.4.6-source/Source'
+          $version = '0.4.7'
+          $tag = "v$version"
+          & "$source/Build.ps1"
+          $build = "$source/bin/Release/net48/ClearCopy.exe"
+          if ((Get-Item $build).VersionInfo.FileVersion -ne "$version.0") {
+            throw 'The built executable has the wrong release version.'
+          }
+          $stage = Join-Path $env:RUNNER_TEMP 'clearcopy-assets'
+          $verify = Join-Path $env:RUNNER_TEMP 'clearcopy-verify'
+          New-Item -ItemType Directory -Path $stage,$verify | Out-Null
+          $name = "ClearCopy-$version.exe"
+          Copy-Item $build (Join-Path $stage $name)
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8"/></startup><runtime><AppContextSwitchOverrides value="Switch.System.IO.UseLegacyPathHandling=false;Switch.System.IO.BlockLongPaths=false"/></runtime></configuration>
+          '@ | Set-Content -LiteralPath (Join-Path $stage "$name.config") -Encoding utf8
+          $assets = @(Get-ChildItem $stage -File)
+          $checksums = Join-Path $stage 'SHA256SUMS.txt'
+          $assets | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+          } | Set-Content -LiteralPath $checksums -Encoding ascii
+          $assets = @(Get-ChildItem $stage -File)
+          $paths = @($assets.FullName)
+          gh release create $tag @paths --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --draft --title "ClearCopy $version" --notes 'Adds a manual Check for updates button that opens this GitHub Releases page.'
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --dir $verify --pattern '*'
+          foreach ($asset in $assets) {
+            $download = Join-Path $verify $asset.Name
+            if ((Get-FileHash $download).Hash -ne (Get-FileHash $asset.FullName).Hash) {
+              throw "Release asset checksum mismatch for $($asset.Name)"
+            }
+          }
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --latest
