@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -2478,7 +2478,7 @@ public sealed class MainWindow : Window
 
 	private void BuildLayout()
 	{
-		Title = "ClearCopy 0.4.7 — copy & compare";
+		Title = "ClearCopy 0.4.8 — copy & compare";
 		Width = 1080.0;
 		Height = 840.0;
 		MinWidth = 800.0;
@@ -2907,6 +2907,18 @@ public sealed class MainWindow : Window
 		WrapPanel wrapPanel7 = wrapPanel6;
 		AddButton(wrapPanel7, "Enable Explorer Ctrl+V chooser", EnablePasteChooser, lockDuringJob: true);
 		AddButton(wrapPanel7, "Disable Ctrl+V chooser", DisablePasteChooser, lockDuringJob: true);
+		AddButton(wrapPanel7, "Reset remembered paste choice", () =>
+		{
+			try
+			{
+				PastePreference.Current.Reset();
+				integrationStatus.Text = "Remembered choice cleared. When the Ctrl+V chooser is enabled, ClearCopy will ask again.";
+			}
+			catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+			{
+				MessageBox.Show(this, "Could not reset the remembered paste choice: " + ex.Message, "ClearCopy paste settings");
+			}
+		}, lockDuringJob: false);
 		AddButton(wrapPanel7, "Paste chooser status", () =>
 		{
 			MessageBox.Show(this, PasteHelper.StatusReport(), "ClearCopy paste helper");

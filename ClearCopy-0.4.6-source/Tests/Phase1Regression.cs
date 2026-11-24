@@ -483,7 +483,8 @@ class Phase1Regression
         // 0.3.9 interface changes.
         Test("0.3.9 slim header: version in title bar, theme is a lightbulb icon", () => {
             var f = new Fixture(); var w = TestWindow(f);
-            Require(w.Title.Contains("0.4.6"), "Version missing from window title"); Require(((TextBlock)Field(w, "percentText")).Text == "", "Idle percentage placeholder still shown");
+            var version = typeof(MainWindow).Assembly.GetName().Version.ToString(3);
+            Require(w.Title.Contains(version), "Version missing from window title"); Require(((TextBlock)Field(w, "percentText")).Text == "", "Idle percentage placeholder still shown");
             var theme = (Button)Field(w, "themeButton");
             Require(theme.Content is TextBlock t && t.Text == "\ue82f", "Theme button is not the lightbulb icon");
             Require(((FrameworkElement)Field(w, "integrationStatus")).Parent is StackPanel, "Explorer status line lost");

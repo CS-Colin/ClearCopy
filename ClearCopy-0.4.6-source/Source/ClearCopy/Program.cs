@@ -18,7 +18,15 @@ public class Program
 		}
 		if (args.Length == 2 && args[0] == "--chooser-check")
 		{
-			PasteHelper.ChooserCheck(args[1]);
+			try
+			{
+				PasteHelper.ChooserCheck(args[1]);
+			}
+			catch (Exception ex)
+			{
+				File.WriteAllText(Path.Combine(args[1], "chooser-error.txt"), ex.ToString());
+				Environment.ExitCode = 1;
+			}
 			return;
 		}
 		if (args.Length == 1 && args[0] == "--install-machine")

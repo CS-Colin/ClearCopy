@@ -19,6 +19,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using SystemColors = System.Windows.SystemColors;
 
 namespace ClearCopy;
 
@@ -500,49 +501,84 @@ public sealed class PasteHelper : IDisposable
 	public static void ChooserCheck(string directory)
 	{
 		Directory.CreateDirectory(directory);
-		System.Windows.Application app = new System.Windows.Application
+		var app = new System.Windows.Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+		string registryPath = @"Software\ClearCopyChooserTest-" + Guid.NewGuid().ToString("N");
+		var preference = new PastePreference(registryPath);
+
+		void Check(bool passed, string message)
 		{
-			ShutdownMode = ShutdownMode.OnExplicitShutdown
-		};
-		for (int i = 0; i < 3; i++)
-		{
-			int pick = i;
-			DispatcherTimer timer = new DispatcherTimer
+			if (!passed)
 			{
-				Interval = TimeSpan.FromMilliseconds(250.0)
-			};
-			timer.Tick += (object param0, EventArgs param1) =>
+				throw new InvalidOperationException(message);
+			}
+		}
+
+		void ReportFailure(string message) => throw new IOException(message);
+
+		PasteChoice ClickOption(int index, bool remember, bool dark = false)
+		{
+			var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+			timer.Tick += (_, _) =>
 			{
 				timer.Stop();
 				Window window = app.Windows.Cast<Window>().Single();
-				window.UpdateLayout();
-				RenderTargetBitmap renderTargetBitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96.0, 96.0, PixelFormats.Pbgra32);
-				renderTargetBitmap.Render(window);
-				PngBitmapEncoder pngBitmapEncoder = new PngBitmapEncoder
+				var content = (ScrollViewer)window.Content;
+				var panel = (StackPanel)content.Content;
+				var checkbox = panel.Children.OfType<System.Windows.Controls.CheckBox>().Single();
+				Check(checkbox.IsChecked == false, "Remember my choice must start unchecked.");
+				checkbox.IsChecked = remember;
+				if (index < 0)
 				{
-					Frames = { BitmapFrame.Create(renderTargetBitmap) }
-				};
-				using (FileStream stream = File.Create(Path.Combine(directory, "Chooser-" + pick + ".png")))
-				{
-					pngBitmapEncoder.Save(stream);
+					window.Close();
+					return;
 				}
-				StackPanel stackPanel = (StackPanel)window.Content;
-				stackPanel.Children.OfType<System.Windows.Controls.Button>().ElementAt(pick).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+				window.UpdateLayout();
+				var bitmap = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+				bitmap.Render(content);
+				var encoder = new PngBitmapEncoder { Frames = { BitmapFrame.Create(bitmap) } };
+				using (FileStream stream = File.Create(Path.Combine(directory, "Chooser-" + (dark ? "Dark" : "Light") + ".png")))
+				{
+					encoder.Save(stream);
+				}
+				panel.Children.OfType<System.Windows.Controls.Button>().ElementAt(index)
+					.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
 			};
-			timer.Start();
-			int num = ShowChooser("C:\\Disposable destination", 2);
-			if (num != i switch
+			return preference.Resolve(() =>
 			{
-				1 => 2, 
-				0 => 1, 
-				_ => 0, 
-			})
-			{
-				throw new Exception("Wrong chooser result");
-			}
+				timer.Start();
+				return ShowChooser(@"C:\Disposable destination", 1, new[] { @"C:\Source\Example file.txt" }, dark);
+			}, ReportFailure);
 		}
-		File.WriteAllText(Path.Combine(directory, "chooser-check.txt"), "PASS Windows, ClearCopy and Cancel buttons returned the expected choices. No real paste was performed.");
-		app.Shutdown();
+
+		try
+		{
+			Check(ClickOption(2, true) == PasteChoice.Cancel && preference.Read() == null, "Cancel saved a choice.");
+			Check(ClickOption(-1, true) == PasteChoice.Cancel && preference.Read() == null, "Closing saved a choice.");
+			Check(ClickOption(0, false) == PasteChoice.Windows && preference.Read() == null, "Unchecked choice was saved.");
+
+			foreach (PasteChoice expected in new[] { PasteChoice.Windows, PasteChoice.ClearCopy })
+			{
+				Check(ClickOption(expected == PasteChoice.Windows ? 0 : 1, true, dark: expected == PasteChoice.ClearCopy) == expected,
+					"The selected action was not returned.");
+				var freshReader = new PastePreference(registryPath);
+				Check(freshReader.Resolve(() => throw new InvalidOperationException("A remembered choice opened the chooser."), ReportFailure) == expected,
+					"The saved choice did not survive a fresh read.");
+				freshReader.Reset();
+				Check(preference.Read() == null, "Reset did not clear the remembered choice.");
+			}
+			using (RegistryKey key = Registry.CurrentUser.CreateSubKey(registryPath))
+			{
+				key.SetValue("RememberedPasteChoice", "Cancel");
+			}
+			Check(ClickOption(2, false) == PasteChoice.Cancel && preference.Read() == null, "An invalid preference bypassed the chooser.");
+			File.WriteAllText(Path.Combine(directory, "chooser-check.txt"),
+				"PASS both copy choices, opt-in, persistence, bypass, Cancel, close, reset and invalid preference. No real paste was performed.");
+		}
+		finally
+		{
+			Registry.CurrentUser.DeleteSubKeyTree(registryPath, throwOnMissingSubKey: false);
+			app.Shutdown();
+		}
 	}
 
 	private void Report(string message)
@@ -789,13 +825,16 @@ public sealed class PasteHelper : IDisposable
 				NativePaste(target.Window, target.Paths);
 				return;
 			}
-			switch (ShowChooser(target.Folder, target.Paths.Length, target.Paths))
+			PasteChoice choice = PastePreference.Current.Resolve(
+				() => ShowChooser(target.Folder, target.Paths.Length, target.Paths),
+				message => Trace.TraceWarning(message));
+			switch (choice)
 			{
-			case 1:
-				Report("Windows selected in the chooser.");
+			case PasteChoice.Windows:
+				Report("Using Windows paste.");
 				NativePaste(target.Window, target.Paths);
 				break;
-			case 2:
+			case PasteChoice.ClearCopy:
 			{
 				string text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClearCopy", "PasteRequests");
 				Directory.CreateDirectory(text);
@@ -823,68 +862,142 @@ public sealed class PasteHelper : IDisposable
 		}
 	}
 
-	public static int ShowChooser(string folder, int count, string[] paths = null)
+	private static (PasteChoice Choice, bool Remember) ShowChooser(string folder, int count, string[] paths, bool? darkOverride = null)
 	{
-		int choice = 0;
-		Window window = new Window
+		bool dark = darkOverride ?? ReadChooserDarkMode();
+		bool highContrast = SystemParameters.HighContrast;
+		System.Windows.Media.Brush Ink(string light, string night) =>
+			new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(dark ? night : light));
+
+		var foreground = highContrast ? SystemColors.WindowTextBrush : Ink("#172B45", "#E6EDF6");
+		var muted = highContrast ? foreground : Ink("#536780", "#A8B8CC");
+		var surface = highContrast ? SystemColors.WindowBrush : Ink("#FFFFFF", "#172232");
+		var outline = highContrast ? foreground : Ink("#CFDCEB", "#34455B");
+		var accent = highContrast ? SystemColors.HighlightBrush : Ink("#1466C6", "#60A5FA");
+		var hover = highContrast ? surface : Ink("#E3EEFC", "#263D59");
+		PasteChoice choice = PasteChoice.Cancel;
+		var window = new Window
 		{
 			Title = "Paste files — ClearCopy",
-			Width = 480.0,
+			Width = 510,
+			MaxWidth = SystemParameters.WorkArea.Width,
+			MaxHeight = SystemParameters.WorkArea.Height,
 			SizeToContent = SizeToContent.Height,
 			ResizeMode = ResizeMode.NoResize,
 			WindowStartupLocation = WindowStartupLocation.CenterScreen,
-			Background = System.Windows.Media.Brushes.White,
-			Foreground = System.Windows.Media.Brushes.Black
+			Background = highContrast ? surface : Ink("#EDF3FA", "#0E1623"),
+			Foreground = foreground,
+			FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+			FontSize = 13,
+			UseLayoutRounding = true
 		};
-		StackPanel stackPanel = new StackPanel();
-		stackPanel.Margin = new Thickness(22.0);
-		StackPanel stackPanel2 = stackPanel;
-		window.Content = stackPanel2;
-		stackPanel2.Children.Add(new TextBlock
+
+		var panel = new StackPanel { Margin = new Thickness(24) };
+		window.Content = new ScrollViewer { Content = panel, Background = window.Background, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+		panel.Children.Add(new TextBlock
 		{
 			Text = "How would you like to paste?",
-			FontSize = 21.0,
-			Margin = new Thickness(0.0, 0.0, 0.0, 12.0)
-		});
-		stackPanel2.Children.Add(new TextBlock
-		{
-			Text = count + " copied item(s) → " + folder,
+			FontSize = 24,
+			FontWeight = FontWeights.SemiBold,
 			TextWrapping = TextWrapping.Wrap,
-			Margin = new Thickness(0.0, 0.0, 0.0, 16.0)
+			Margin = new Thickness(0, 0, 0, 12)
 		});
-		if (paths != null)
+		string destination = "To: " + folder;
+		string selection = paths == null ? null : string.Join(", ", paths.Take(3).Select(p => Path.GetFileName(p.TrimEnd('\\'))))
+			+ (paths.Length > 3 ? ", …" : "");
+		var details = new StackPanel();
+		details.Children.Add(new TextBlock { Text = count == 1 ? "1 copied item" : count + " copied items", FontWeight = FontWeights.SemiBold });
+		details.Children.Add(new TextBlock { Text = destination, Foreground = muted, TextWrapping = TextWrapping.Wrap, MaxHeight = 56, ToolTip = destination });
+		if (!string.IsNullOrEmpty(selection))
 		{
-			stackPanel2.Children.Add(new TextBlock
-			{
-				Text = "Captured selection: " + string.Join(", ", from p in paths.Take(3)
-					select Path.GetFileName(p.TrimEnd('\\'))) + ((paths.Length > 3) ? ", …" : ""),
-				TextWrapping = TextWrapping.Wrap,
-				Margin = new Thickness(0.0, 0.0, 0.0, 12.0)
-			});
+			details.Children.Add(new TextBlock { Text = selection, Foreground = muted, TextWrapping = TextWrapping.Wrap, MaxHeight = 38, ToolTip = selection });
 		}
-		string[][] array = new string[3][]
+		panel.Children.Add(new Border
 		{
-			new string[2] { "Windows — normal copy", "1" },
-			new string[2] { "ClearCopy — copy and verify", "2" },
-			new string[2] { "Cancel", "0" }
-		};
-		foreach (string[] array2 in array)
+			Child = details, Background = surface, BorderBrush = outline, BorderThickness = new Thickness(1),
+			CornerRadius = new CornerRadius(8), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 16)
+		});
+
+		window.Resources["PasteHover"] = hover;
+		window.Resources["PasteAccent"] = accent;
+		var optionTemplate = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("""
+			<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+				xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="{x:Type Button}">
+				<Border x:Name="Card" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+					BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
+					<ContentPresenter/>
+				</Border>
+				<ControlTemplate.Triggers>
+					<Trigger Property="IsMouseOver" Value="True">
+						<Setter TargetName="Card" Property="Background" Value="{DynamicResource PasteHover}"/>
+						<Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource PasteAccent}"/>
+					</Trigger>
+					<Trigger Property="IsKeyboardFocused" Value="True">
+						<Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource PasteAccent}"/>
+						<Setter TargetName="Card" Property="BorderThickness" Value="2"/>
+					</Trigger>
+					<Trigger Property="IsPressed" Value="True">
+						<Setter TargetName="Card" Property="Opacity" Value=".8"/>
+					</Trigger>
+				</ControlTemplate.Triggers>
+			</ControlTemplate>
+			""");
+
+		void AddOption(PasteChoice value, string name, string description)
 		{
-			int value = int.Parse(array2[1]);
-			System.Windows.Controls.Button button = new System.Windows.Controls.Button();
-			button.Content = array2[0];
-			button.Padding = new Thickness(12.0);
-			button.Margin = new Thickness(0.0, 3.0, 0.0, 3.0);
-			System.Windows.Controls.Button button2 = button;
-			button2.Click += (object param0, RoutedEventArgs param1) =>
+			var label = new StackPanel();
+			label.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.SemiBold, FontSize = 15, TextWrapping = TextWrapping.Wrap });
+			label.Children.Add(new TextBlock { Text = description, Foreground = muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
+			var button = new System.Windows.Controls.Button
 			{
-				choice = value;
-				window.Close();
+				Content = label, Background = surface, BorderBrush = outline, Foreground = foreground,
+				Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 8),
+				Cursor = System.Windows.Input.Cursors.Hand, Template = optionTemplate
 			};
-			stackPanel2.Children.Add(button2);
+			System.Windows.Automation.AutomationProperties.SetName(button, name);
+			System.Windows.Automation.AutomationProperties.SetHelpText(button, description);
+			button.Click += (_, _) => { choice = value; window.Close(); };
+			panel.Children.Add(button);
 		}
+
+		AddOption(PasteChoice.Windows, "Windows — normal copy", "Use the standard Windows file transfer.");
+		AddOption(PasteChoice.ClearCopy, "ClearCopy — copy and verify", "Copy the files and verify their integrity.");
+
+		var remember = new System.Windows.Controls.CheckBox
+		{
+			Content = "Remember my choice",
+			Foreground = foreground,
+			Margin = new Thickness(0, 9, 0, 4)
+		};
+		panel.Children.Add(remember);
+		panel.Children.Add(new TextBlock
+		{
+			Text = "Reset your choice in ClearCopy → Explorer integration.",
+			Foreground = muted, TextWrapping = TextWrapping.Wrap
+		});
+		var cancel = new System.Windows.Controls.Button
+		{
+			Content = "Cancel", IsCancel = true, HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+			Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 12, 0, 0),
+			Background = surface, BorderBrush = outline, Foreground = foreground, Template = optionTemplate
+		};
+		cancel.Click += (_, _) => window.Close();
+		panel.Children.Add(cancel);
 		window.ShowDialog();
-		return choice;
+		return (choice, choice != PasteChoice.Cancel && remember.IsChecked == true);
+	}
+
+	private static bool ReadChooserDarkMode()
+	{
+		try
+		{
+			using RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\ClearCopy");
+			return key?.GetValue("DarkMode") is int dark && dark == 1;
+		}
+		catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+		{
+			return false;
+		}
 	}
 
 	private static void NativePaste(IntPtr window, string[] paths)
