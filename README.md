@@ -2,6 +2,9 @@
 
 ClearCopy is a Windows file copy and comparison utility.
 
-The source snapshots contain the app, build scripts, and test sources.
+- `Source/` contains the app and its build script.
+- `Tests/` contains the test harnesses and fixtures.
 
-[GitHub Releases](https://github.com/CS-Colin/ClearCopy/releases)
+Build on Windows with the .NET 10 SDK by running `./Source/Build.ps1` in PowerShell.
+
+Download the prebuilt app from [GitHub Releases](https://github.com/CS-Colin/ClearCopy/releases).
