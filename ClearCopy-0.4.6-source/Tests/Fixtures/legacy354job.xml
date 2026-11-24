@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<JobRecord xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Schema>1</Schema>
+  <Id>3d6b678ad41d42c6aae8660beea06c8a</Id>
+  <Build>0.3.5.4</Build>
+  <Destination>C:\ClearCopy-disposable-fixture\target</Destination>
+  <State>Cancelled</State>
+  <Sources>
+    <string>C:\ClearCopy-disposable-fixture\source</string>
+  </Sources>
+  <Contents>true</Contents>
+  <Verify>true</Verify>
+  <CompareOnly>false</CompareOnly>
+  <Details>false</Details>
+  <Permissions>false</Permissions>
+  <Sync>false</Sync>
+  <Rule>SkipSameAndOlder</Rule>
+  <UpdatedUtc>2026-10-21T06:40:35.0536968Z</UpdatedUtc>
+  <SkipToleranceSeconds>0</SkipToleranceSeconds>
+  <Completed>
+    <ItemResult>
+      <Source>C:\ClearCopy-disposable-fixture\source\a.txt</Source>
+      <Target>C:\ClearCopy-disposable-fixture\target\a.txt</Target>
+      <Status>Matched</Status>
+      <Reason>SHA-256 primary streams matched while both files were held read-only</Reason>
+      <Size>4</Size>
+      <Hash>7B-34-69-04-F6-3C-C0-7F-1D-8C-C2-D8-8D-CF-0F-C7-23-BA-33-2D-E0-EC-2E-30-78-6C-72-A3-4E-3D-E1-29</Hash>
+      <Directory>false</Directory>
+    </ItemResult>
+  </Completed>
+  <Selection />
+</JobRecord>
